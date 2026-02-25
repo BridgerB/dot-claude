@@ -1,10 +1,9 @@
-import devtoolsJson from 'vite-plugin-devtools-json';
 import { defineConfig } from 'vitest/config';
 import { playwright } from '@vitest/browser-playwright';
 import { sveltekit } from '@sveltejs/kit/vite';
 
 export default defineConfig({
-	plugins: [sveltekit(), devtoolsJson()],
+	plugins: [sveltekit()],
 	test: {
 		expect: { requireAssertions: true },
 		projects: [
