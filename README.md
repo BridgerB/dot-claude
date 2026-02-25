@@ -15,7 +15,7 @@ To recreate this project with the same configuration:
 
 ```sh
 # recreate this project
-npx sv create --template minimal --types ts --add prettier eslint playwright sveltekit-adapter="adapter:node" drizzle="database:postgresql+postgresql:postgres.js+docker:yes" mcp="ide:claude-code+setup:local" --install npm .
+npx sv create --template minimal --types ts --add prettier eslint playwright vitest="usages:unit,component" sveltekit-adapter="adapter:node" devtools-json drizzle="database:sqlite+sqlite:better-sqlite3" mcp="ide:claude-code+setup:local" --install npm .
 ```
 
 ## Developing
