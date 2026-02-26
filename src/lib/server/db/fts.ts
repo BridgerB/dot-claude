@@ -1,7 +1,6 @@
 import type Database from 'better-sqlite3';
 
-/** Create FTS5 virtual tables and sync triggers. Safe to call repeatedly. */
-export function initFts(client: Database.Database) {
+export const initFts = (client: Database.Database) => {
 	client.exec(`
 		-- ── Messages FTS ────────────────────────────────────────────────────
 		CREATE VIRTUAL TABLE IF NOT EXISTS messages_fts USING fts5(
@@ -112,4 +111,4 @@ export function initFts(client: Database.Database) {
 			value TEXT
 		);
 	`);
-}
+};

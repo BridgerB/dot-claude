@@ -2,6 +2,7 @@
 	import { enhance } from '$app/forms';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/state';
+	import TimelineMinimap from '$lib/components/TimelineMinimap.svelte';
 
 	let { data, form } = $props();
 	let syncing = $state(false);
@@ -9,11 +10,8 @@
 	const onSearchInput = (e: Event) => {
 		const value = (e.target as HTMLInputElement).value.trim();
 		const url = new URL(page.url);
-		if (value) {
-			url.searchParams.set('q', value);
-		} else {
-			url.searchParams.delete('q');
-		}
+		if (value) url.searchParams.set('q', value);
+		else url.searchParams.delete('q');
 		url.searchParams.delete('page');
 		goto(url.pathname + url.search, { keepFocus: true });
 	};
@@ -38,127 +36,145 @@
 	const pageUrl = (p: number) => `?q=${encodeURIComponent(data.query)}&page=${p}`;
 </script>
 
-<header>
-	<h1>Claude Code Search</h1>
-	<div class="sync-area">
-		{#if form?.stats}
-			<span class="sync-result">{form.stats.messages} msgs in {form.stats.durationMs}ms</span>
+<div class="page-layout">
+	<div class="main-content">
+		<div class="search-bar">
+			<input
+				type="text"
+				value={data.query}
+				placeholder="Search messages, tools, history..."
+				oninput={onSearchInput}
+			/>
+			<form
+				method="POST"
+				action="?/sync"
+				use:enhance={() => {
+					syncing = true;
+					return async ({ update }) => {
+						syncing = false;
+						await update();
+					};
+				}}
+			>
+				<button class="sync-btn" disabled={syncing}>{syncing ? 'Syncing...' : 'Sync'}</button>
+			</form>
+			{#if form?.stats}
+				<span class="sync-result">{form.stats.messages} msgs in {form.stats.durationMs}ms</span>
+			{/if}
+		</div>
+
+		{#if data.query}
+			<p>{data.total} results for "{data.query}" — page {data.page} of {data.totalPages}</p>
 		{/if}
-		<form
-			method="POST"
-			action="?/sync"
-			use:enhance={() => {
-				syncing = true;
-				return async ({ update }) => {
-					syncing = false;
-					await update();
-				};
-			}}
-		>
-			<button class="sync-btn" disabled={syncing}>{syncing ? 'Syncing...' : 'Sync'}</button>
-		</form>
-	</div>
-</header>
 
-<input
-	type="text"
-	value={data.query}
-	placeholder="Search messages, tools, history..."
-	oninput={onSearchInput}
-/>
-
-{#if data.query}
-	<p>{data.total} results for "{data.query}" — page {data.page} of {data.totalPages}</p>
-{/if}
-
-{#if data.results.length > 0}
-	{#snippet pagination()}
-		{#if data.totalPages > 1}
-			<nav aria-label="Pagination">
-				<a class="nav-btn" href={pageUrl(1)} aria-disabled={data.page <= 1}>&laquo;</a>
-				<a class="nav-btn" href={pageUrl(data.page - 1)} aria-disabled={data.page <= 1}>&lsaquo;</a>
-				{#each pageNumbers as p (p)}
-					{#if p === '...'}
-						<span class="ellipsis">&hellip;</span>
-					{:else}
-						<a class="nav-btn" href={pageUrl(p)} aria-current={p === data.page ? 'page' : undefined}
-							>{p}</a
+		{#if data.results.length > 0}
+			{#snippet pagination()}
+				{#if data.totalPages > 1}
+					<nav aria-label="Pagination">
+						<a class="nav-btn" href={pageUrl(1)} aria-disabled={data.page <= 1}>&laquo;</a>
+						<a class="nav-btn" href={pageUrl(data.page - 1)} aria-disabled={data.page <= 1}
+							>&lsaquo;</a
 						>
-					{/if}
-				{/each}
-				<a
-					class="nav-btn"
-					href={pageUrl(data.page + 1)}
-					aria-disabled={data.page >= data.totalPages}>&rsaquo;</a
-				>
-				<a
-					class="nav-btn"
-					href={pageUrl(data.totalPages)}
-					aria-disabled={data.page >= data.totalPages}>&raquo;</a
-				>
-			</nav>
+						{#each pageNumbers as p (p)}
+							{#if p === '...'}
+								<span class="ellipsis">&hellip;</span>
+							{:else}
+								<a
+									class="nav-btn"
+									href={pageUrl(p)}
+									aria-current={p === data.page ? 'page' : undefined}>{p}</a
+								>
+							{/if}
+						{/each}
+						<a
+							class="nav-btn"
+							href={pageUrl(data.page + 1)}
+							aria-disabled={data.page >= data.totalPages}>&rsaquo;</a
+						>
+						<a
+							class="nav-btn"
+							href={pageUrl(data.totalPages)}
+							aria-disabled={data.page >= data.totalPages}>&raquo;</a
+						>
+					</nav>
+				{/if}
+			{/snippet}
+
+			<table>
+				<thead>
+					<tr>
+						<th>Source</th>
+						<th>Project</th>
+						<th>Content</th>
+						<th>Time</th>
+					</tr>
+				</thead>
+				<tbody>
+					{#each data.results as r (r.id)}
+						<tr>
+							<td>
+								{#if r.source === 'message' && r.role === 'user'}
+									<span class="badge badge-user">you</span>
+								{:else if r.source === 'message' && r.role === 'assistant'}
+									<span class="badge badge-assistant">claude</span>
+								{:else if r.source === 'tool_use'}
+									<span class="badge badge-tool">{r.tool_name}</span>
+								{:else}
+									<span class="badge badge-history">history</span>
+								{/if}
+							</td>
+							<td>{r.project ?? ''}</td>
+							<td class="content" onclick={(e) => e.currentTarget.classList.toggle('expanded')}
+								>{r.content}</td
+							>
+							<td class="time">
+								{#if r.timestamp}
+									{new Date(r.timestamp * 1000).toLocaleDateString()}
+								{/if}
+							</td>
+						</tr>
+					{/each}
+				</tbody>
+			</table>
+
+			<div class="pagination-row">
+				{@render pagination()}
+				{#if data.showAll}
+					<a class="nav-btn show-all" href="?q={encodeURIComponent(data.query)}">Show less</a>
+				{:else}
+					<a class="nav-btn show-all" href="?q={encodeURIComponent(data.query)}&all=1">Show all</a>
+				{/if}
+			</div>
 		{/if}
-	{/snippet}
-
-	<table>
-		<thead>
-			<tr>
-				<th>Source</th>
-				<th>Project</th>
-				<th>Content</th>
-				<th>Time</th>
-			</tr>
-		</thead>
-		<tbody>
-			{#each data.results as r (r.id)}
-				<tr>
-					<td>
-						{#if r.source === 'message'}
-							{r.role}
-						{:else if r.source === 'tool_use'}
-							{r.tool_name}
-						{:else}
-							history
-						{/if}
-					</td>
-					<td>{r.project ?? ''}</td>
-					<td class="content" onclick={(e) => e.currentTarget.classList.toggle('expanded')}
-						>{r.content}</td
-					>
-					<td class="time">
-						{#if r.timestamp}
-							{new Date(r.timestamp * 1000).toLocaleDateString()}
-						{/if}
-					</td>
-				</tr>
-			{/each}
-		</tbody>
-	</table>
-
-	<div class="pagination-row">
-		{@render pagination()}
-		<a class="nav-btn show-all" href="?q={encodeURIComponent(data.query)}&all=1">Show all</a>
 	</div>
-{/if}
+
+	{#if data.query && data.timeRange.min != null}
+		<TimelineMinimap timeRange={data.timeRange} matchTimestamps={data.matchTimestamps} />
+	{/if}
+</div>
 
 <style>
-	header {
-		display: flex;
-		align-items: center;
-		justify-content: space-between;
-		margin-bottom: 0.5rem;
+	.page-layout {
+		display: grid;
+		grid-template-columns: 1fr 48px;
+		gap: 1rem;
+		min-height: 80vh;
 	}
-	header h1 {
-		margin: 0;
+	@media (max-width: 768px) {
+		.page-layout {
+			grid-template-columns: 1fr;
+		}
 	}
-	.sync-area {
+	.search-bar {
 		display: flex;
 		align-items: center;
 		gap: 0.5rem;
+		margin-bottom: 1rem;
 	}
 	.sync-result {
 		font-size: 0.75rem;
 		color: var(--text-muted);
+		white-space: nowrap;
 	}
 	.sync-btn {
 		padding: 0.375rem 0.75rem;
@@ -168,6 +184,7 @@
 		color: var(--text);
 		font-size: 0.875rem;
 		cursor: pointer;
+		white-space: nowrap;
 	}
 	.sync-btn:hover:not(:disabled) {
 		background: var(--hover);
@@ -177,10 +194,9 @@
 		cursor: default;
 	}
 	input {
-		width: 100%;
+		flex: 1;
 		padding: 0.5rem;
 		font-size: 1rem;
-		margin-bottom: 1rem;
 		background: var(--input-bg);
 		color: var(--text);
 		border: 1px solid var(--border);
@@ -250,6 +266,44 @@
 	}
 	th {
 		background: var(--bg-subtle);
+	}
+	.badge {
+		display: inline-block;
+		padding: 0.125rem 0.5rem;
+		border-radius: 9999px;
+		font-size: 0.75rem;
+		font-weight: 600;
+		white-space: nowrap;
+	}
+	.badge-user {
+		background: #dbeafe;
+		color: #1e40af;
+	}
+	.badge-assistant {
+		background: #fce7f3;
+		color: #9d174d;
+	}
+	.badge-tool {
+		background: #e0e7ff;
+		color: #3730a3;
+	}
+	.badge-history {
+		background: var(--bg-subtle);
+		color: var(--text-muted);
+	}
+	@media (prefers-color-scheme: dark) {
+		.badge-user {
+			background: #1e3a5f;
+			color: #93c5fd;
+		}
+		.badge-assistant {
+			background: #4a1942;
+			color: #f9a8d4;
+		}
+		.badge-tool {
+			background: #312e81;
+			color: #a5b4fc;
+		}
 	}
 	.content {
 		max-width: 600px;

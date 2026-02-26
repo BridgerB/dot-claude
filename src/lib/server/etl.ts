@@ -63,22 +63,21 @@ export interface SyncStats {
 	durationMs: number;
 }
 
-function extractTextContent(blocks: ContentBlock[]): string {
-	return blocks
+const extractTextContent = (blocks: ContentBlock[]) =>
+	blocks
 		.filter((b) => b.type === 'text')
 		.map((b) => b.text)
 		.join('\n\n');
-}
 
-function extractUserContent(content: string | ContentBlock[]): string {
-	if (typeof content === 'string') return content;
-	return content
-		.filter((b) => b.type === 'text')
-		.map((b) => b.text)
-		.join('\n\n');
-}
+const extractUserContent = (content: string | ContentBlock[]) =>
+	typeof content === 'string'
+		? content
+		: content
+				.filter((b) => b.type === 'text')
+				.map((b) => b.text)
+				.join('\n\n');
 
-function flattenToolInput(toolName: string, input: Record<string, unknown>): string {
+const flattenToolInput = (toolName: string, input: Record<string, unknown>): string => {
 	switch (toolName) {
 		case 'Bash':
 			return (input.command as string) ?? '';
@@ -100,19 +99,19 @@ function flattenToolInput(toolName: string, input: Record<string, unknown>): str
 				.filter((v): v is string => typeof v === 'string')
 				.join(' ');
 	}
-}
+};
 
-function safeReaddir(dir: string): string[] {
+const safeReaddir = (dir: string): string[] => {
 	try {
 		return readdirSync(dir);
 	} catch {
 		return [];
 	}
-}
+};
 
 type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-function processSessionFile(
+const processSessionFile = (
 	tx: DbTx,
 	filePath: string,
 	projectId: number,
@@ -120,7 +119,7 @@ function processSessionFile(
 	parentSessionId: string | null,
 	agentId: string | null,
 	stats: SyncStats
-) {
+) => {
 	let content: string;
 	try {
 		content = readFileSync(filePath, 'utf-8');
@@ -174,7 +173,6 @@ function processSessionFile(
 
 	if (!sessionId) return;
 
-	// Build tool_result map from user messages
 	const toolResultMap = new Map<string, string>();
 	for (const rec of userRecords) {
 		const msgContent = rec.message?.content;
@@ -190,7 +188,6 @@ function processSessionFile(
 		}
 	}
 
-	// Compute session time range
 	const allTimestamps: number[] = [];
 	for (const r of userRecords) {
 		if (r.timestamp) allTimestamps.push(new Date(r.timestamp).getTime());
@@ -200,7 +197,6 @@ function processSessionFile(
 	}
 	allTimestamps.sort((a, b) => a - b);
 
-	// Insert session
 	const session = tx
 		.insert(s.sessions)
 		.values({
@@ -225,7 +221,6 @@ function processSessionFile(
 
 	const now = new Date();
 
-	// Insert user messages
 	for (const rec of userRecords) {
 		const msg = rec.message;
 		if (!msg?.content || !rec.uuid) continue;
@@ -258,7 +253,6 @@ function processSessionFile(
 		stats.messages++;
 	}
 
-	// Insert assistant messages (grouped by message.id)
 	for (const [, recs] of assistantLinesByMsgId) {
 		const first = recs[0];
 		const allBlocks: ContentBlock[] = [];
@@ -298,10 +292,9 @@ function processSessionFile(
 			.returning({ id: s.messages.id })
 			.get();
 
-		if (!msgRow) continue; // duplicate uuid, skip
+		if (!msgRow) continue;
 		stats.messages++;
 
-		// Insert tool_uses for this message
 		const toolBlocks = allBlocks.filter((b) => b.type === 'tool_use');
 		for (const tool of toolBlocks) {
 			if (!tool.id || !tool.name) continue;
@@ -319,9 +312,9 @@ function processSessionFile(
 			stats.toolUses++;
 		}
 	}
-}
+};
 
-export function sync(): SyncStats {
+export const sync = (): SyncStats => {
 	const start = performance.now();
 	const stats: SyncStats = {
 		projects: 0,
@@ -334,8 +327,6 @@ export function sync(): SyncStats {
 		durationMs: 0
 	};
 
-	// Pre-parse history.jsonl to build project path map
-	// Needed because dir encoding is lossy (both / and . become -)
 	const historyPath = join(CLAUDE_DIR, 'history.jsonl');
 	const historyRecords: HistoryRecord[] = [];
 	const pathMap = new Map<string, string>();
@@ -357,7 +348,6 @@ export function sync(): SyncStats {
 	}
 
 	db.transaction((tx) => {
-		// 1. Clear all tables (reverse FK order)
 		tx.delete(s.toolUses).run();
 		tx.delete(s.messages).run();
 		tx.delete(s.sessions).run();
@@ -366,7 +356,6 @@ export function sync(): SyncStats {
 		tx.delete(s.tasks).run();
 		tx.delete(s.plans).run();
 
-		// 2. Projects
 		const projectsDir = join(CLAUDE_DIR, 'projects');
 		const projectMap = new Map<string, number>();
 
@@ -390,7 +379,6 @@ export function sync(): SyncStats {
 			}
 		}
 
-		// 3. Sessions + Messages + Tool Uses
 		for (const [dir, projectId] of projectMap) {
 			const dirPath = join(projectsDir, dir);
 			for (const entry of safeReaddir(dirPath)) {
@@ -399,7 +387,6 @@ export function sync(): SyncStats {
 				const sessionUuid = entry.replace('.jsonl', '');
 				processSessionFile(tx, join(dirPath, entry), projectId, false, null, null, stats);
 
-				// Process subagents
 				const subagentDir = join(dirPath, sessionUuid, 'subagents');
 				if (existsSync(subagentDir)) {
 					for (const subFile of safeReaddir(subagentDir)) {
@@ -419,7 +406,6 @@ export function sync(): SyncStats {
 			}
 		}
 
-		// 4. Global History
 		const CHUNK = 100;
 		for (let i = 0; i < historyRecords.length; i += CHUNK) {
 			const chunk = historyRecords.slice(i, i + CHUNK);
@@ -438,7 +424,6 @@ export function sync(): SyncStats {
 		}
 		stats.globalHistory = historyRecords.length;
 
-		// 5. Tasks
 		const tasksDir = join(CLAUDE_DIR, 'tasks');
 		if (existsSync(tasksDir)) {
 			for (const sessionDir of safeReaddir(tasksDir)) {
@@ -473,7 +458,6 @@ export function sync(): SyncStats {
 			}
 		}
 
-		// 6. Plans
 		const plansDir = join(CLAUDE_DIR, 'plans');
 		if (existsSync(plansDir)) {
 			for (const file of safeReaddir(plansDir)) {
@@ -501,30 +485,30 @@ export function sync(): SyncStats {
 
 	stats.durationMs = Math.round(performance.now() - start);
 
-	// Write sync metadata
-	db.insert(s.meta)
-		.values({ key: 'lastSyncAt', value: new Date().toISOString() })
-		.onConflictDoUpdate({ target: s.meta.key, set: { value: new Date().toISOString() } })
-		.run();
-	db.insert(s.meta)
-		.values({ key: 'lastSyncStats', value: JSON.stringify(stats) })
-		.onConflictDoUpdate({ target: s.meta.key, set: { value: JSON.stringify(stats) } })
-		.run();
+	const upsertMeta = (key: string, value: string) =>
+		db
+			.insert(s.meta)
+			.values({ key, value })
+			.onConflictDoUpdate({ target: s.meta.key, set: { value } })
+			.run();
+
+	upsertMeta('lastSyncAt', new Date().toISOString());
+	upsertMeta('lastSyncStats', JSON.stringify(stats));
 
 	return stats;
-}
+};
 
-export function getLastSyncAt(): Date | null {
+export const getLastSyncAt = (): Date | null => {
 	const row = db
 		.select({ value: s.meta.value })
 		.from(s.meta)
 		.where(sql`key = 'lastSyncAt'`)
 		.get();
 	return row?.value ? new Date(row.value) : null;
-}
+};
 
-export function isSyncStale(maxAgeMs = 60 * 60 * 1000): boolean {
+export const isSyncStale = (maxAgeMs = 60 * 60 * 1000) => {
 	const lastSync = getLastSyncAt();
 	if (!lastSync) return true;
 	return Date.now() - lastSync.getTime() > maxAgeMs;
-}
+};

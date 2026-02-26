@@ -10,16 +10,54 @@ export const load: PageServerLoad = async ({ url }) => {
 	const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
 	const showAll = url.searchParams.get('all') === '1';
 
-	if (!q)
+	const timeRange = db.get<{ minTs: number | null; maxTs: number | null }>(sql`
+		SELECT MIN(minTs) as minTs, MAX(maxTs) as maxTs FROM (
+			SELECT MIN(timestamp) as minTs, MAX(timestamp) as maxTs FROM messages WHERE timestamp IS NOT NULL
+			UNION ALL
+			SELECT MIN(timestamp) as minTs, MAX(timestamp) as maxTs FROM global_history WHERE timestamp IS NOT NULL
+		)
+	`);
+
+	if (!q) {
+		const results = db.all<{
+			source: string;
+			id: number;
+			content: string;
+			role: string | null;
+			project: string | null;
+			session_summary: string | null;
+			timestamp: number | null;
+			tool_name: string | null;
+		}>(sql`
+			SELECT
+				'message' as source,
+				m.id,
+				m.content,
+				m.role,
+				p.name as project,
+				s.summary as session_summary,
+				m.timestamp,
+				null as tool_name
+			FROM messages m
+			JOIN sessions s ON s.id = m.session_id
+			JOIN projects p ON p.id = s.project_id
+			WHERE m.timestamp IS NOT NULL
+			ORDER BY m.timestamp DESC
+			LIMIT ${PAGE_SIZE}
+		`);
+
 		return {
 			query: '',
-			results: [],
+			results,
 			total: 0,
 			page: 1,
 			pageSize: PAGE_SIZE,
 			totalPages: 0,
-			showAll: false
+			showAll: false,
+			timeRange: { min: timeRange?.minTs ?? null, max: timeRange?.maxTs ?? null },
+			matchTimestamps: [] as number[]
 		};
+	}
 
 	const ftsQuery = q
 		.replace(/['"():^~*]/g, '')
@@ -36,10 +74,11 @@ export const load: PageServerLoad = async ({ url }) => {
 			page: 1,
 			pageSize: PAGE_SIZE,
 			totalPages: 0,
-			showAll: false
+			showAll: false,
+			timeRange: { min: timeRange?.minTs ?? null, max: timeRange?.maxTs ?? null },
+			matchTimestamps: [] as number[]
 		};
 
-	// Count total matches
 	const countResult = db.get<{ total: number }>(sql`
 		SELECT (
 			(SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ${ftsQuery}) +
@@ -115,10 +154,38 @@ export const load: PageServerLoad = async ({ url }) => {
 			JOIN global_history g ON g.id = fts.rowid
 			WHERE global_history_fts MATCH ${ftsQuery}
 		)
-		ORDER BY rank
+		ORDER BY timestamp DESC
 		LIMIT ${limit}
 		OFFSET ${offset}
 	`);
+
+	const matchTimestamps = db
+		.all<{ timestamp: number }>(
+			sql`
+		SELECT timestamp FROM (
+			SELECT m.timestamp
+			FROM messages_fts fts
+			JOIN messages m ON m.id = fts.rowid
+			WHERE messages_fts MATCH ${ftsQuery} AND m.timestamp IS NOT NULL
+
+			UNION ALL
+
+			SELECT m.timestamp
+			FROM tool_uses_fts fts
+			JOIN tool_uses t ON t.id = fts.rowid
+			JOIN messages m ON m.id = t.message_id
+			WHERE tool_uses_fts MATCH ${ftsQuery} AND m.timestamp IS NOT NULL
+
+			UNION ALL
+
+			SELECT g.timestamp
+			FROM global_history_fts fts
+			JOIN global_history g ON g.id = fts.rowid
+			WHERE global_history_fts MATCH ${ftsQuery} AND g.timestamp IS NOT NULL
+		)
+	`
+		)
+		.map((r) => r.timestamp);
 
 	return {
 		query: q,
@@ -127,7 +194,9 @@ export const load: PageServerLoad = async ({ url }) => {
 		page: showAll ? 1 : page,
 		pageSize: PAGE_SIZE,
 		totalPages,
-		showAll
+		showAll,
+		timeRange: { min: timeRange?.minTs ?? null, max: timeRange?.maxTs ?? null },
+		matchTimestamps
 	};
 };
 
