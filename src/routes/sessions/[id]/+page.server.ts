@@ -1,5 +1,7 @@
 import { db } from '$lib/server/db';
-import { sql } from 'drizzle-orm';
+import { asc, eq, and, isNotNull, sql } from 'drizzle-orm';
+import { sessions, messages, projects } from '$lib/server/db/schema';
+import { summaryFallback } from '$lib/server/db/helpers';
 import { error } from '@sveltejs/kit';
 import type { PageServerLoad } from './$types';
 
@@ -9,33 +11,21 @@ export const load: PageServerLoad = async ({ params, url }) => {
 	const sessionDbId = parseInt(params.id, 10);
 	if (isNaN(sessionDbId)) error(404, 'Session not found');
 
-	const session = db.get<{
-		id: number;
-		sessionId: string;
-		project: string;
-		summary: string | null;
-		startedAt: number | null;
-		endedAt: number | null;
-		cwd: string | null;
-		gitBranch: string | null;
-	}>(sql`
-		SELECT
-			s.id,
-			s.session_id as sessionId,
-			p.name as project,
-			COALESCE(s.summary, (
-				SELECT substr(m2.content, 1, 200) FROM messages m2
-				WHERE m2.session_id = s.id AND m2.role = 'user' AND m2.content IS NOT NULL
-				ORDER BY m2.timestamp ASC LIMIT 1
-			)) as summary,
-			s.started_at as startedAt,
-			s.ended_at as endedAt,
-			s.cwd,
-			s.git_branch as gitBranch
-		FROM sessions s
-		JOIN projects p ON p.id = s.project_id
-		WHERE s.id = ${sessionDbId}
-	`);
+	const session = db
+		.select({
+			id: sessions.id,
+			sessionId: sessions.sessionId,
+			project: projects.name,
+			summary: summaryFallback,
+			startedAt: sql<number | null>`${sessions.startedAt}`,
+			endedAt: sql<number | null>`${sessions.endedAt}`,
+			cwd: sessions.cwd,
+			gitBranch: sessions.gitBranch
+		})
+		.from(sessions)
+		.innerJoin(projects, eq(projects.id, sessions.projectId))
+		.where(eq(sessions.id, sessionDbId))
+		.get();
 
 	if (!session) error(404, 'Session not found');
 
@@ -44,25 +34,19 @@ export const load: PageServerLoad = async ({ params, url }) => {
 	const showAll = url.searchParams.get('all') === '1';
 
 	if (!q) {
-		const results = db.all<{
-			source: string;
-			id: number;
-			content: string;
-			role: string | null;
-			timestamp: number | null;
-			tool_name: string | null;
-		}>(sql`
-			SELECT
-				'message' as source,
-				m.id,
-				m.content,
-				m.role,
-				m.timestamp,
-				null as tool_name
-			FROM messages m
-			WHERE m.session_id = ${sessionDbId} AND m.timestamp IS NOT NULL
-			ORDER BY m.timestamp ASC
-		`);
+		const results = db
+			.select({
+				source: sql<string>`'message'`,
+				id: messages.id,
+				content: messages.content,
+				role: messages.role,
+				timestamp: sql<number | null>`${messages.timestamp}`,
+				tool_name: sql<string | null>`null`
+			})
+			.from(messages)
+			.where(and(eq(messages.sessionId, sessionDbId), isNotNull(messages.timestamp)))
+			.orderBy(asc(messages.timestamp))
+			.all();
 
 		return {
 			session,
@@ -95,6 +79,7 @@ export const load: PageServerLoad = async ({ params, url }) => {
 			showAll: false
 		};
 
+	// FTS queries must stay raw SQL — Drizzle has no virtual table support
 	const countResult = db.get<{ total: number }>(sql`
 		SELECT (
 			(SELECT count(*) FROM messages_fts fts JOIN messages m ON m.id = fts.rowid

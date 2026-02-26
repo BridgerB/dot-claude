@@ -1,5 +1,6 @@
 import { db } from '$lib/server/db';
-import { sql } from 'drizzle-orm';
+import { desc, eq, isNotNull, min, max, sql } from 'drizzle-orm';
+import { messages, sessions, projects, globalHistory } from '$lib/server/db/schema';
 import { sync } from '$lib/server/etl';
 import type { Actions, PageServerLoad } from './$types';
 
@@ -10,41 +11,49 @@ export const load: PageServerLoad = async ({ url }) => {
 	const page = Math.max(1, parseInt(url.searchParams.get('page') ?? '1', 10) || 1);
 	const showAll = url.searchParams.get('all') === '1';
 
-	const timeRange = db.get<{ minTs: number | null; maxTs: number | null }>(sql`
-		SELECT MIN(minTs) as minTs, MAX(maxTs) as maxTs FROM (
-			SELECT MIN(timestamp) as minTs, MAX(timestamp) as maxTs FROM messages WHERE timestamp IS NOT NULL
-			UNION ALL
-			SELECT MIN(timestamp) as minTs, MAX(timestamp) as maxTs FROM global_history WHERE timestamp IS NOT NULL
-		)
-	`);
+	const msgRange = db
+		.select({ minTs: min(messages.timestamp), maxTs: max(messages.timestamp) })
+		.from(messages)
+		.where(isNotNull(messages.timestamp));
+	const histRange = db
+		.select({ minTs: min(globalHistory.timestamp), maxTs: max(globalHistory.timestamp) })
+		.from(globalHistory)
+		.where(isNotNull(globalHistory.timestamp));
+	const timeRangeResult = msgRange.unionAll(histRange).all();
+	const minTs = timeRangeResult.reduce(
+		(m, r) => {
+			const v = r.minTs ? Math.floor(r.minTs.getTime() / 1000) : null;
+			return v != null && (m == null || v < m) ? v : m;
+		},
+		null as number | null
+	);
+	const maxTs = timeRangeResult.reduce(
+		(m, r) => {
+			const v = r.maxTs ? Math.floor(r.maxTs.getTime() / 1000) : null;
+			return v != null && (m == null || v > m) ? v : m;
+		},
+		null as number | null
+	);
 
 	if (!q) {
-		const results = db.all<{
-			source: string;
-			id: number;
-			content: string;
-			role: string | null;
-			project: string | null;
-			session_summary: string | null;
-			timestamp: number | null;
-			tool_name: string | null;
-		}>(sql`
-			SELECT
-				'message' as source,
-				m.id,
-				m.content,
-				m.role,
-				p.name as project,
-				s.summary as session_summary,
-				m.timestamp,
-				null as tool_name
-			FROM messages m
-			JOIN sessions s ON s.id = m.session_id
-			JOIN projects p ON p.id = s.project_id
-			WHERE m.timestamp IS NOT NULL
-			ORDER BY m.timestamp DESC
-			LIMIT ${PAGE_SIZE}
-		`);
+		const results = db
+			.select({
+				source: sql<string>`'message'`,
+				id: messages.id,
+				content: messages.content,
+				role: messages.role,
+				project: projects.name,
+				session_summary: sessions.summary,
+				timestamp: sql<number | null>`${messages.timestamp}`,
+				tool_name: sql<string | null>`null`
+			})
+			.from(messages)
+			.innerJoin(sessions, eq(sessions.id, messages.sessionId))
+			.innerJoin(projects, eq(projects.id, sessions.projectId))
+			.where(isNotNull(messages.timestamp))
+			.orderBy(desc(messages.timestamp))
+			.limit(PAGE_SIZE)
+			.all();
 
 		return {
 			query: '',
@@ -54,7 +63,7 @@ export const load: PageServerLoad = async ({ url }) => {
 			pageSize: PAGE_SIZE,
 			totalPages: 0,
 			showAll: false,
-			timeRange: { min: timeRange?.minTs ?? null, max: timeRange?.maxTs ?? null },
+			timeRange: { min: minTs, max: maxTs },
 			matchTimestamps: [] as number[]
 		};
 	}
@@ -75,10 +84,11 @@ export const load: PageServerLoad = async ({ url }) => {
 			pageSize: PAGE_SIZE,
 			totalPages: 0,
 			showAll: false,
-			timeRange: { min: timeRange?.minTs ?? null, max: timeRange?.maxTs ?? null },
+			timeRange: { min: minTs, max: maxTs },
 			matchTimestamps: [] as number[]
 		};
 
+	// FTS queries must stay raw SQL — Drizzle has no virtual table support
 	const countResult = db.get<{ total: number }>(sql`
 		SELECT (
 			(SELECT count(*) FROM messages_fts WHERE messages_fts MATCH ${ftsQuery}) +
@@ -195,7 +205,7 @@ export const load: PageServerLoad = async ({ url }) => {
 		pageSize: PAGE_SIZE,
 		totalPages,
 		showAll,
-		timeRange: { min: timeRange?.minTs ?? null, max: timeRange?.maxTs ?? null },
+		timeRange: { min: minTs, max: maxTs },
 		matchTimestamps
 	};
 };

@@ -16,6 +16,11 @@
 			href="/projects"
 			aria-current={page.url.pathname.startsWith('/projects') ? 'page' : undefined}>Projects</a
 		>
+		<a
+			class="tab"
+			href="/reports"
+			aria-current={page.url.pathname.startsWith('/reports') ? 'page' : undefined}>Reports</a
+		>
 	</div>
 </nav>
 

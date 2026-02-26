@@ -1,6 +1,6 @@
 import { db } from '$lib/server/db';
 import * as s from '$lib/server/db/schema';
-import { sql } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { readFileSync, readdirSync, existsSync, statSync } from 'node:fs';
 import { join, basename } from 'node:path';
 import { homedir } from 'node:os';
@@ -502,7 +502,7 @@ export const getLastSyncAt = (): Date | null => {
 	const row = db
 		.select({ value: s.meta.value })
 		.from(s.meta)
-		.where(sql`key = 'lastSyncAt'`)
+		.where(eq(s.meta.key, 'lastSyncAt'))
 		.get();
 	return row?.value ? new Date(row.value) : null;
 };
