@@ -9,6 +9,12 @@
 		return String(n);
 	};
 
+	const formatDollars = (n: number) => {
+		if (n >= 1000) return `$${(n / 1000).toFixed(1)}K`;
+		if (n >= 1) return `$${n.toFixed(2)}`;
+		return `$${n.toFixed(3)}`;
+	};
+
 	const darkMode =
 		typeof window !== 'undefined' && window.matchMedia('(prefers-color-scheme: dark)').matches;
 	const textColor = darkMode ? '#e0e0e0' : '#111';
@@ -208,6 +214,137 @@
 		]
 	});
 
+	// ── Pricing charts ────────────────────────────────────────────────────────
+
+	const dailyCostOptions = $derived({
+		tooltip: {
+			trigger: 'axis' as const,
+			valueFormatter: ((v: number) => `$${v.toFixed(2)}`) as never
+		},
+		grid: { left: 60, right: 20, bottom: 80, top: 10 },
+		xAxis: {
+			type: 'category' as const,
+			data: data.dailyCost.map((d) => d.day),
+			axisLabel: { color: mutedColor, rotate: 45, fontSize: 10 },
+			axisLine: { lineStyle: { color: gridBorderColor } }
+		},
+		yAxis: {
+			type: 'value' as const,
+			axisLabel: {
+				color: mutedColor,
+				formatter: (v: number) => `$${v}`
+			},
+			splitLine: { lineStyle: { color: gridBorderColor } }
+		},
+		series: [
+			{
+				type: 'bar' as const,
+				data: data.dailyCost.map((d) => d.cost),
+				itemStyle: { color: '#ee6666' }
+			}
+		]
+	});
+
+	const cumulativeCostOptions = $derived(() => {
+		let running = 0;
+		const cumulative = data.dailyCost.map((d) => {
+			running += d.cost;
+			return { day: d.day, cost: Math.round(running * 100) / 100 };
+		});
+		return {
+			tooltip: {
+				trigger: 'axis' as const,
+				valueFormatter: ((v: number) => `$${v.toFixed(2)}`) as never
+			},
+			grid: { left: 60, right: 20, bottom: 80, top: 10 },
+			xAxis: {
+				type: 'category' as const,
+				data: cumulative.map((d) => d.day),
+				axisLabel: { color: mutedColor, rotate: 45, fontSize: 10 },
+				axisLine: { lineStyle: { color: gridBorderColor } }
+			},
+			yAxis: {
+				type: 'value' as const,
+				axisLabel: {
+					color: mutedColor,
+					formatter: (v: number) => formatDollars(v)
+				},
+				splitLine: { lineStyle: { color: gridBorderColor } }
+			},
+			series: [
+				{
+					type: 'line' as const,
+					data: cumulative.map((d) => d.cost),
+					areaStyle: { opacity: 0.15 },
+					itemStyle: { color: '#ee6666' },
+					smooth: true
+				}
+			]
+		};
+	});
+
+	const costByModelOptions = $derived({
+		tooltip: { trigger: 'item' as const, valueFormatter: ((v: number) => `$${v.toFixed(2)}`) as never },
+		series: [
+			{
+				type: 'pie' as const,
+				radius: ['40%', '70%'],
+				avoidLabelOverlap: true,
+				label: { color: textColor },
+				data: data.costByModel.map((d) => ({
+					value: d.cost,
+					name: d.model.replace('claude-', '').replace(/-20\d{6}$/, '')
+				}))
+			}
+		]
+	});
+
+	const costByCategoryOptions = $derived({
+		tooltip: { trigger: 'item' as const, valueFormatter: ((v: number) => `$${v.toFixed(2)}`) as never },
+		series: [
+			{
+				type: 'pie' as const,
+				radius: ['40%', '70%'],
+				avoidLabelOverlap: true,
+				label: { color: textColor },
+				data: [
+					{ value: data.costByCategory.input, name: 'Input', itemStyle: { color: '#5470c6' } },
+					{ value: data.costByCategory.output, name: 'Output', itemStyle: { color: '#91cc75' } },
+					{ value: data.costByCategory.cacheWrite, name: 'Cache Write', itemStyle: { color: '#fac858' } },
+					{ value: data.costByCategory.cacheRead, name: 'Cache Read', itemStyle: { color: '#ee6666' } }
+				].filter((d) => d.value > 0)
+			}
+		]
+	});
+
+	const projectCostOptions = $derived({
+		tooltip: {
+			trigger: 'axis' as const,
+			valueFormatter: ((v: number) => `$${v.toFixed(2)}`) as never
+		},
+		grid: { left: 120, right: 20, bottom: 10, top: 10 },
+		xAxis: {
+			type: 'value' as const,
+			axisLabel: {
+				color: mutedColor,
+				formatter: (v: number) => formatDollars(v)
+			},
+			splitLine: { lineStyle: { color: gridBorderColor } }
+		},
+		yAxis: {
+			type: 'category' as const,
+			data: data.topProjectsByCost.map((d) => d.name).reverse(),
+			axisLabel: { color: mutedColor }
+		},
+		series: [
+			{
+				type: 'bar' as const,
+				data: data.topProjectsByCost.map((d) => d.cost).reverse(),
+				itemStyle: { color: '#ee6666' }
+			}
+		]
+	});
+
 	const projectChartOptions = $derived({
 		tooltip: { trigger: 'axis' as const },
 		legend: { data: ['Input', 'Output'], textStyle: { color: textColor } },
@@ -315,6 +452,58 @@
 	</div>
 </div>
 
+<h2 class="section-heading">Estimated Costs</h2>
+
+<div class="stats-grid">
+	<div class="stat-card">
+		<div class="stat-value">${data.totalCost.toFixed(2)}</div>
+		<div class="stat-label">Total Estimated Cost</div>
+	</div>
+	<div class="stat-card">
+		<div class="stat-value">${data.costByCategory.input.toFixed(2)}</div>
+		<div class="stat-label">Input Tokens</div>
+	</div>
+	<div class="stat-card">
+		<div class="stat-value">${data.costByCategory.output.toFixed(2)}</div>
+		<div class="stat-label">Output Tokens</div>
+	</div>
+	<div class="stat-card">
+		<div class="stat-value">${data.costByCategory.cacheWrite.toFixed(2)}</div>
+		<div class="stat-label">Cache Writes</div>
+	</div>
+	<div class="stat-card">
+		<div class="stat-value">${data.costByCategory.cacheRead.toFixed(2)}</div>
+		<div class="stat-label">Cache Reads</div>
+	</div>
+</div>
+
+<div class="charts-grid">
+	<div class="chart-card full">
+		<h3>Estimated Daily Cost</h3>
+		<EChart options={dailyCostOptions} height="350px" />
+	</div>
+
+	<div class="chart-card full">
+		<h3>Cumulative Cost</h3>
+		<EChart options={cumulativeCostOptions()} height="350px" />
+	</div>
+
+	<div class="chart-card">
+		<h3>Cost by Model</h3>
+		<EChart options={costByModelOptions} height="350px" />
+	</div>
+
+	<div class="chart-card">
+		<h3>Cost by Category</h3>
+		<EChart options={costByCategoryOptions} height="350px" />
+	</div>
+
+	<div class="chart-card full">
+		<h3>Top Projects by Cost</h3>
+		<EChart options={projectCostOptions} height="350px" />
+	</div>
+</div>
+
 <style>
 	.stats-grid {
 		display: grid;
@@ -356,6 +545,13 @@
 		margin: 0 0 0.5rem;
 		font-size: 0.9375rem;
 		font-weight: 600;
+	}
+	.section-heading {
+		margin: 2rem 0 1rem;
+		font-size: 1.25rem;
+		font-weight: 700;
+		border-bottom: 1px solid var(--border);
+		padding-bottom: 0.5rem;
 	}
 	@media (max-width: 768px) {
 		.charts-grid {
