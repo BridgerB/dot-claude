@@ -26,6 +26,15 @@ export default defineConfig(
 		}
 	},
 	{
+		// resolve() doesn't support query params yet — all navigation here is query-param search on root route
+		// https://github.com/sveltejs/kit/issues/14750
+		// https://github.com/sveltejs/eslint-plugin-svelte/issues/1353
+		files: ['src/routes/+page.svelte'],
+		rules: {
+			'svelte/no-navigation-without-resolve': 'off'
+		}
+	},
+	{
 		files: ['**/*.svelte', '**/*.svelte.ts', '**/*.svelte.js'],
 		languageOptions: {
 			parserOptions: {
