@@ -5,7 +5,10 @@ import { dateDay } from '$lib/server/db/helpers';
 import type { PageServerLoad } from './$types';
 
 // Pricing per million tokens (USD)
-const MODEL_PRICING: Record<string, { input: number; output: number; cacheWrite: number; cacheRead: number }> = {
+const MODEL_PRICING: Record<
+	string,
+	{ input: number; output: number; cacheWrite: number; cacheRead: number }
+> = {
 	'claude-opus-4-6': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
 	'claude-opus-4-5-20251101': { input: 5, output: 25, cacheWrite: 6.25, cacheRead: 0.5 },
 	'claude-opus-4-1-20250414': { input: 15, output: 75, cacheWrite: 18.75, cacheRead: 1.5 },
@@ -161,7 +164,9 @@ export const load: PageServerLoad = async () => {
 			cacheReadTokens: sql<number>`COALESCE(SUM(${messages.cacheReadTokens}), 0)`
 		})
 		.from(messages)
-		.where(and(eq(messages.role, 'assistant'), isNotNull(messages.timestamp), isNotNull(messages.model)))
+		.where(
+			and(eq(messages.role, 'assistant'), isNotNull(messages.timestamp), isNotNull(messages.model))
+		)
 		.groupBy(day, messages.model)
 		.orderBy(day)
 		.all();
@@ -169,7 +174,13 @@ export const load: PageServerLoad = async () => {
 	// Aggregate daily costs by day (sum across models)
 	const dailyCostMap = new Map<string, number>();
 	for (const row of dailyCostRaw) {
-		const cost = computeCost(row.model, row.inputTokens, row.outputTokens, row.cacheCreationTokens, row.cacheReadTokens);
+		const cost = computeCost(
+			row.model,
+			row.inputTokens,
+			row.outputTokens,
+			row.cacheCreationTokens,
+			row.cacheReadTokens
+		);
 		dailyCostMap.set(row.day, (dailyCostMap.get(row.day) ?? 0) + cost);
 	}
 	const dailyCost = [...dailyCostMap.entries()]
@@ -193,7 +204,16 @@ export const load: PageServerLoad = async () => {
 	const costByModel = costByModelRaw
 		.map((r) => ({
 			model: r.model,
-			cost: Math.round(computeCost(r.model, r.inputTokens, r.outputTokens, r.cacheCreationTokens, r.cacheReadTokens) * 100) / 100
+			cost:
+				Math.round(
+					computeCost(
+						r.model,
+						r.inputTokens,
+						r.outputTokens,
+						r.cacheCreationTokens,
+						r.cacheReadTokens
+					) * 100
+				) / 100
 		}))
 		.filter((r) => r.cost > 0)
 		.sort((a, b) => b.cost - a.cost);
@@ -233,7 +253,13 @@ export const load: PageServerLoad = async () => {
 
 	const projectCostMap = new Map<string, number>();
 	for (const row of projectCostRaw) {
-		const cost = computeCost(row.model, row.inputTokens, row.outputTokens, row.cacheCreationTokens, row.cacheReadTokens);
+		const cost = computeCost(
+			row.model,
+			row.inputTokens,
+			row.outputTokens,
+			row.cacheCreationTokens,
+			row.cacheReadTokens
+		);
 		projectCostMap.set(row.name, (projectCostMap.get(row.name) ?? 0) + cost);
 	}
 	const topProjectsByCost = [...projectCostMap.entries()]

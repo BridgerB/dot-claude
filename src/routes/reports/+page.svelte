@@ -284,7 +284,10 @@
 	});
 
 	const costByModelOptions = $derived({
-		tooltip: { trigger: 'item' as const, valueFormatter: ((v: number) => `$${v.toFixed(2)}`) as never },
+		tooltip: {
+			trigger: 'item' as const,
+			valueFormatter: ((v: number) => `$${v.toFixed(2)}`) as never
+		},
 		series: [
 			{
 				type: 'pie' as const,
@@ -300,7 +303,10 @@
 	});
 
 	const costByCategoryOptions = $derived({
-		tooltip: { trigger: 'item' as const, valueFormatter: ((v: number) => `$${v.toFixed(2)}`) as never },
+		tooltip: {
+			trigger: 'item' as const,
+			valueFormatter: ((v: number) => `$${v.toFixed(2)}`) as never
+		},
 		series: [
 			{
 				type: 'pie' as const,
@@ -310,8 +316,16 @@
 				data: [
 					{ value: data.costByCategory.input, name: 'Input', itemStyle: { color: '#5470c6' } },
 					{ value: data.costByCategory.output, name: 'Output', itemStyle: { color: '#91cc75' } },
-					{ value: data.costByCategory.cacheWrite, name: 'Cache Write', itemStyle: { color: '#fac858' } },
-					{ value: data.costByCategory.cacheRead, name: 'Cache Read', itemStyle: { color: '#ee6666' } }
+					{
+						value: data.costByCategory.cacheWrite,
+						name: 'Cache Write',
+						itemStyle: { color: '#fac858' }
+					},
+					{
+						value: data.costByCategory.cacheRead,
+						name: 'Cache Read',
+						itemStyle: { color: '#ee6666' }
+					}
 				].filter((d) => d.value > 0)
 			}
 		]
